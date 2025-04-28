@@ -1,20 +1,17 @@
-# create_vector_store.py
+# ✅ Final Corrected create_vector_store.py for Railway Deployment
 
-import faiss
 import openai
+import faiss
 import numpy as np
 import pickle
 import fitz  # PyMuPDF
-from langchain.text_splitter import RecursiveCharacterTextSplitter
 import os
+from langdetect import detect
 
-# ----------------- Load OpenAI API Key -----------------
-api_key = os.getenv("OPENAI_API_KEY")
-if not api_key:
-    raise ValueError("❌ OpenAI API Key not found! Set it as an environment variable.")
-openai.api_key = api_key
+# ✅ Make sure you have set your OpenAI API key in Railway Variables
+openai.api_key = os.getenv("OPENAI_API_KEY")
 
-# ----------------- Load PDF -----------------
+# Load the PDF file
 def load_pdf(file_path):
     doc = fitz.open(file_path)
     text = ""
@@ -22,47 +19,40 @@ def load_pdf(file_path):
         text += page.get_text()
     return text
 
-# ----------------- Split Text -----------------
-def split_text(text, chunk_size=500, chunk_overlap=50):
-    splitter = RecursiveCharacterTextSplitter(
-        chunk_size=chunk_size,
-        chunk_overlap=chunk_overlap,
-        separators=["\n", ".", "?", "!"]
-    )
-    return splitter.split_text(text)
+# Split text into smaller chunks
+def split_text(text, chunk_size=500):
+    words = text.split()
+    return [" ".join(words[i:i+chunk_size]) for i in range(0, len(words), chunk_size)]
 
-# ----------------- Get Embedding -----------------
+# Get embedding using OpenAI
 def get_embedding(text, model="text-embedding-ada-002"):
-    result = openai.Embedding.create(input=[text], model=model)
-    return result['data'][0]['embedding']
+    text = text.replace("\n", " ")
+    result = openai.embeddings.create(input=[text], model=model)
+    return result.data[0].embedding
 
-# ----------------- Create Vector Store -----------------
-def create_vector_store(chunks):
-    embeddings = [get_embedding(chunk) for chunk in chunks]
-    dimension = len(embeddings[0])
-    index = faiss.IndexFlatL2(dimension)
-    index.add(np.array(embeddings).astype('float32'))
-    return index, chunks
+# Build the FAISS index and save it
+def build_knowledge_base():
+    print("🔵 Step 1: Loading PDF...")
+    text = load_pdf("BANK OF PUNE SOP 1.pdf")
 
-# ----------------- Main Execution -----------------
-if __name__ == "__main__":
-    pdf_path = "BANK OF PUNE SOP 1.pdf"  # 📄 Your SOP file
-    print(f"📚 Loading {pdf_path}...")
-    text = load_pdf(pdf_path)
-    print("✅ PDF Loaded!")
-
-    print("✂️ Splitting into chunks...")
+    print("🔵 Step 2: Splitting text into chunks...")
     chunks = split_text(text)
 
-    print(f"✅ {len(chunks)} chunks created!")
+    print("🔵 Step 3: Generating embeddings...")
+    embeddings = [get_embedding(chunk) for chunk in chunks]
 
-    print("🔎 Creating embeddings and vector index...")
-    index, chunks = create_vector_store(chunks)
+    dimension = len(embeddings[0])
+    index = faiss.IndexFlatL2(dimension)
 
-    # Save FAISS index and chunks
+    print("🔵 Step 4: Adding embeddings to FAISS index...")
+    index.add(np.array(embeddings).astype('float32'))
+
+    print("🔵 Step 5: Saving FAISS index and chunks...")
     faiss.write_index(index, "kb.index")
     with open("chunks.pkl", "wb") as f:
         pickle.dump(chunks, f)
 
-    print("✅ Successfully created 'kb.index' and 'chunks.pkl' files!")
-    print("🎯 Now upload these two files to your GitHub along with your app.")
+    print("✅ Knowledge base created and saved successfully!")
+
+if __name__ == "__main__":
+    build_knowledge_base()
