@@ -81,9 +81,12 @@ Answer the user's question strictly using ONLY the below information:
 
 Question: {question}
 
-If information not found, reply: "Information not available in the SOP."
+If the information is NOT available in the above content, reply with EXACTLY:
+"Information not available in the SOP."
 
-Always reply in the user's question language.
+⚠️ Do NOT translate or change this fallback message. Always keep it in English.
+
+If information is available, then answer normally, matching the user's input language.
     """
 
     response = client.chat.completions.create(
