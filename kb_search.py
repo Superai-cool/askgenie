@@ -1,15 +1,25 @@
+# ✅ FINAL kb_search.py with STRICT COPY-ONLY prompt
+
+import openai
 import faiss
-import os
 import numpy as np
 import pickle
 import fitz  # PyMuPDF
-from langchain.text_splitter import RecursiveCharacterTextSplitter
-from openai import OpenAI
+from langdetect import detect
 
-# ✅ Initialize OpenAI Client
-client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+# Load FAISS index and chunks
+index = faiss.read_index("kb.index")
+with open("chunks.pkl", "rb") as f:
+    chunks = pickle.load(f)
 
-# ---------------------- Load and Split PDF ----------------------
+# Helper function to detect language
+def detect_language(text):
+    try:
+        return detect(text)
+    except:
+        return "en"
+
+# Load PDF text (if rebuilding)
 def load_pdf(file_path):
     doc = fitz.open(file_path)
     text = ""
@@ -17,23 +27,20 @@ def load_pdf(file_path):
         text += page.get_text()
     return text
 
-def split_text(text, chunk_size=500, chunk_overlap=50):
-    splitter = RecursiveCharacterTextSplitter(
-        chunk_size=chunk_size,
-        chunk_overlap=chunk_overlap,
-        separators=["\n", ".", "?", "!"]
-    )
-    return splitter.split_text(text)
+# Split text into smaller chunks (if rebuilding)
+def split_text(text, chunk_size=500):
+    words = text.split()
+    return [" ".join(words[i:i+chunk_size]) for i in range(0, len(words), chunk_size)]
 
-# ---------------------- Get Embeddings ----------------------
+# Get OpenAI Embedding
+openai.api_key = os.getenv("OPENAI_API_KEY")
+
 def get_embedding(text, model="text-embedding-ada-002"):
-    response = client.embeddings.create(
-        input=[text],
-        model=model
-    )
-    return response.data[0].embedding
+    text = text.replace("\n", " ")
+    result = openai.embeddings.create(input=[text], model=model)
+    return result.data[0].embedding
 
-# ---------------------- Build Knowledge Base ----------------------
+# Build Knowledge Base from PDF (optional)
 def build_knowledge_base():
     print("🔵 Building knowledge base from scratch...")
     text = load_pdf("BANK OF PUNE SOP 1.pdf")
@@ -42,55 +49,48 @@ def build_knowledge_base():
     dimension = len(embeddings[0])
     index = faiss.IndexFlatL2(dimension)
     index.add(np.array(embeddings).astype('float32'))
-    
-    # Save the index and chunks
+
+    # Save index and chunks
     faiss.write_index(index, "kb.index")
     with open("chunks.pkl", "wb") as f:
         pickle.dump(chunks, f)
-    
     print("✅ Knowledge base created successfully!")
     return index, chunks
 
-# ---------------------- Load or Create KB ----------------------
-if os.path.exists("kb.index") and os.path.exists("chunks.pkl"):
-    try:
-        index = faiss.read_index("kb.index")
-        with open("chunks.pkl", "rb") as f:
-            chunks = pickle.load(f)
-        print("✅ Loaded existing knowledge base!")
-    except:
-        index, chunks = build_knowledge_base()
-else:
-    index, chunks = build_knowledge_base()
+# Strict Copy-Only Answering from KB
+def answer_from_kb(question, answer_type="short"):
+    embedded_question = get_embedding(question)
+    D, I = index.search(np.array([embedded_question]).astype('float32'), k=3)
+    related_chunks = [chunks[i] for i in I[0] if i != -1]
 
-# ---------------------- Search and Answer Functions ----------------------
-def search_kb(question, top_k=3):
-    question_embedding = np.array([get_embedding(question)]).astype('float32')
-    D, I = index.search(question_embedding, top_k)
-    return [chunks[i] for i in I[0]]
-
-def answer_from_kb(question):
-    related_chunks = search_kb(question)
-
-    prompt = f"""
+    system_prompt = f"""
 You are Ask Genie, an internal banking assistant.
 
-Answer the user's question strictly using ONLY the below information:
+Strictly answer ONLY by copying the text exactly from the information provided below:
 
 {''.join(related_chunks)}
 
 Question: {question}
 
-If the information is NOT available in the above content, reply with EXACTLY:
+⚠️ Do not summarize, shorten, edit, add new points, or paraphrase.
+⚠️ Only copy exactly what is written in the provided information.
+
+If the information is not available, reply exactly:
 "Information not available in the SOP."
+"""
 
-⚠️ Do NOT translate or change this fallback message. Always keep it in English.
-
-If information is available, then answer normally, matching the user's input language.
-    """
-
-    response = client.chat.completions.create(
-        model="gpt-4o",
-        messages=[{"role": "system", "content": prompt}]
+    response = openai.chat.completions.create(
+        model="gpt-4",
+        messages=[
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": question}
+        ],
+        temperature=0
     )
-    return response.choices[0].message.content.strip()
+
+    final_answer = response.choices[0].message.content.strip()
+
+    detected_lang = detect_language(question)
+
+    # Translate back if needed (optional, you can add)
+    return final_answer
