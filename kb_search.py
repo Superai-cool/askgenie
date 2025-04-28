@@ -35,19 +35,26 @@ def build_knowledge_base():
     dimension = len(embeddings[0])
     index = faiss.IndexFlatL2(dimension)
     index.add(np.array(embeddings).astype('float32'))
+    
+    # Save files for future use
     faiss.write_index(index, "kb.index")
     with open("chunks.pkl", "wb") as f:
         pickle.dump(chunks, f)
+    
     print("✅ Knowledge base created successfully!")
+    return index, chunks
 
-# 🛠 Check if kb.index and chunks.pkl exist
-if not os.path.exists("kb.index") or not os.path.exists("chunks.pkl"):
-    build_knowledge_base()
-
-# 🧠 Now safely load after checking
-index = faiss.read_index("kb.index")
-with open("chunks.pkl", "rb") as f:
-    chunks = pickle.load(f)
+# 🛠 Always Rebuild Fresh (Best for Streamlit + Railway)
+if os.path.exists("kb.index") and os.path.exists("chunks.pkl"):
+    try:
+        index = faiss.read_index("kb.index")
+        with open("chunks.pkl", "rb") as f:
+            chunks = pickle.load(f)
+        print("✅ Loaded existing knowledge base!")
+    except:
+        index, chunks = build_knowledge_base()
+else:
+    index, chunks = build_knowledge_base()
 
 def search_kb(question, top_k=3):
     question_embedding = np.array([get_embedding(question)]).astype('float32')
