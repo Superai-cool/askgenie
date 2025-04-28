@@ -1,17 +1,49 @@
-# kb_search.py
-
 import faiss
 import openai
 import numpy as np
 import pickle
+import os
+import fitz  # PyMuPDF
+from langchain.text_splitter import RecursiveCharacterTextSplitter
 
-openai.api_key = "your-openai-api-key"
+openai.api_key = os.getenv("OPENAI_API_KEY")
+
+def load_pdf(file_path):
+    doc = fitz.open(file_path)
+    text = ""
+    for page in doc:
+        text += page.get_text()
+    return text
+
+def split_text(text, chunk_size=500, chunk_overlap=50):
+    splitter = RecursiveCharacterTextSplitter(
+        chunk_size=chunk_size,
+        chunk_overlap=chunk_overlap,
+        separators=["\n", ".", "?", "!"]
+    )
+    return splitter.split_text(text)
 
 def get_embedding(text, model="text-embedding-ada-002"):
     result = openai.Embedding.create(input=[text], model=model)
     return result['data'][0]['embedding']
 
-# Load FAISS index and chunks
+# 🔥 New: Build if not found
+if not os.path.exists("kb.index") or not os.path.exists("chunks.pkl"):
+    print("🔵 kb.index or chunks.pkl not found — building knowledge base...")
+    text = load_pdf("BANK OF PUNE SOP 1.pdf")
+    chunks = split_text(text)
+    embeddings = [get_embedding(chunk) for chunk in chunks]
+    dimension = len(embeddings[0])
+    index = faiss.IndexFlatL2(dimension)
+    index.add(np.array(embeddings).astype('float32'))
+    faiss.write_index(index, "kb.index")
+    with open("chunks.pkl", "wb") as f:
+        pickle.dump(chunks, f)
+    print("✅ Knowledge base built successfully!")
+else:
+    print("✅ Found existing kb.index and chunks.pkl!")
+
+# 🔵 Load after build or if found
 index = faiss.read_index("kb.index")
 with open("chunks.pkl", "rb") as f:
     chunks = pickle.load(f)
