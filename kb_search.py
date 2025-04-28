@@ -1,13 +1,15 @@
 import faiss
-import openai
+import os
 import numpy as np
 import pickle
-import os
 import fitz  # PyMuPDF
 from langchain.text_splitter import RecursiveCharacterTextSplitter
+from openai import OpenAI
 
-openai.api_key = os.getenv("OPENAI_API_KEY")
+# ✅ Initialize OpenAI Client
+client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
+# ---------------------- Load and Split PDF ----------------------
 def load_pdf(file_path):
     doc = fitz.open(file_path)
     text = ""
@@ -23,10 +25,15 @@ def split_text(text, chunk_size=500, chunk_overlap=50):
     )
     return splitter.split_text(text)
 
+# ---------------------- Get Embeddings ----------------------
 def get_embedding(text, model="text-embedding-ada-002"):
-    result = openai.Embedding.create(input=[text], model=model)
-    return result['data'][0]['embedding']
+    response = client.embeddings.create(
+        input=[text],
+        model=model
+    )
+    return response.data[0].embedding
 
+# ---------------------- Build Knowledge Base ----------------------
 def build_knowledge_base():
     print("🔵 Building knowledge base from scratch...")
     text = load_pdf("BANK OF PUNE SOP 1.pdf")
@@ -36,7 +43,7 @@ def build_knowledge_base():
     index = faiss.IndexFlatL2(dimension)
     index.add(np.array(embeddings).astype('float32'))
     
-    # Save files for future use
+    # Save the index and chunks
     faiss.write_index(index, "kb.index")
     with open("chunks.pkl", "wb") as f:
         pickle.dump(chunks, f)
@@ -44,7 +51,7 @@ def build_knowledge_base():
     print("✅ Knowledge base created successfully!")
     return index, chunks
 
-# 🛠 Always Rebuild Fresh (Best for Streamlit + Railway)
+# ---------------------- Load or Create KB ----------------------
 if os.path.exists("kb.index") and os.path.exists("chunks.pkl"):
     try:
         index = faiss.read_index("kb.index")
@@ -56,6 +63,7 @@ if os.path.exists("kb.index") and os.path.exists("chunks.pkl"):
 else:
     index, chunks = build_knowledge_base()
 
+# ---------------------- Search and Answer Functions ----------------------
 def search_kb(question, top_k=3):
     question_embedding = np.array([get_embedding(question)]).astype('float32')
     D, I = index.search(question_embedding, top_k)
@@ -78,8 +86,8 @@ If information not found, reply: "Information not available in the SOP."
 Always reply in the user's question language.
     """
 
-    response = openai.ChatCompletion.create(
+    response = client.chat.completions.create(
         model="gpt-4o",
         messages=[{"role": "system", "content": prompt}]
     )
-    return response.choices[0].message["content"].strip()
+    return response.choices[0].message.content.strip()
