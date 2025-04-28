@@ -27,9 +27,8 @@ def get_embedding(text, model="text-embedding-ada-002"):
     result = openai.Embedding.create(input=[text], model=model)
     return result['data'][0]['embedding']
 
-# 🔥 New: Build if not found
-if not os.path.exists("kb.index") or not os.path.exists("chunks.pkl"):
-    print("🔵 kb.index or chunks.pkl not found — building knowledge base...")
+def build_knowledge_base():
+    print("🔵 Building knowledge base from scratch...")
     text = load_pdf("BANK OF PUNE SOP 1.pdf")
     chunks = split_text(text)
     embeddings = [get_embedding(chunk) for chunk in chunks]
@@ -39,11 +38,13 @@ if not os.path.exists("kb.index") or not os.path.exists("chunks.pkl"):
     faiss.write_index(index, "kb.index")
     with open("chunks.pkl", "wb") as f:
         pickle.dump(chunks, f)
-    print("✅ Knowledge base built successfully!")
-else:
-    print("✅ Found existing kb.index and chunks.pkl!")
+    print("✅ Knowledge base created successfully!")
 
-# 🔵 Load after build or if found
+# 🛠 Check if kb.index and chunks.pkl exist
+if not os.path.exists("kb.index") or not os.path.exists("chunks.pkl"):
+    build_knowledge_base()
+
+# 🧠 Now safely load after checking
 index = faiss.read_index("kb.index")
 with open("chunks.pkl", "rb") as f:
     chunks = pickle.load(f)
